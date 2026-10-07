@@ -13,11 +13,14 @@ class ScreenOne extends StatefulWidget {
 }
 
 class _ScreenOneState extends State<ScreenOne> {
-  final TextEditingController _itemController = TextEditingController(text: '20-70-01-127-A');
-  final buttonsEnabled=true;
+  final TextEditingController _itemMESCController = TextEditingController(text: '20-70-01-127');
+  final TextEditingController _partNumberController = TextEditingController();
+  final buttonsEnabled=false;
+
   @override
   void dispose() {
-    _itemController.dispose();
+    _itemMESCController.dispose();
+    _partNumberController.dispose();
     super.dispose();
   }
 
@@ -25,7 +28,7 @@ class _ScreenOneState extends State<ScreenOne> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Center(child: Title(color: Colors.blueAccent, child: Text('new Title'))),
+        title: Center(child: Title(color: Colors.blueAccent, child: Text('KPC Turbines Stock'))),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -36,48 +39,70 @@ class _ScreenOneState extends State<ScreenOne> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: TextField(
-                controller: _itemController,
+                controller: _itemMESCController,
+                keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: 'Item Number',
+                  labelText: 'Item MESC',
                   border: OutlineInputBorder(),
-                  hintText: 'e.g. 20-70-01-127-A',
+                  hint: Text(textAlign: TextAlign.end,
+                      'e.g. 20-70-01-127'),
                 ),
               ),
             ),
+            const SizedBox(height: 12.0),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: TextField(
+                keyboardType: TextInputType.number,
+                controller: _partNumberController,
+                decoration: const InputDecoration(
+
+                  labelText: 'Part Number',
+                  border: OutlineInputBorder(),
+                  hint: Text(textAlign: TextAlign.right,
+                      'e.g. 912755C1'),
+
+                ),
+              ),
+            ),
+            const Spacer(),
             ElevatedButton(
               onPressed: () async {
-                await getItemData(_itemController.text);
+
+                if (_itemMESCController.text.trim().isNotEmpty) {
+                  await getItemDataByMESC('${_itemMESCController.text.trim()}-A');
+                }
+                else if( _partNumberController.text.trim().isNotEmpty )  {
+                  await getItemDataByPartNumber(_partNumberController.text.trim());
+                }
               },
-              child: const Text('Get Row by Item'),
+              child: const Text('Get Item Information'),
             ),
+            const Spacer(),
 
+            buttonsEnabled? ElevatedButton(onPressed: () async{
+               await getAllData(); },
+                child: const Text('get all rows')):Spacer(),
 
-            ElevatedButton(onPressed:buttonsEnabled? () async{
-               await getData();
-            }:null
-
-            , child: const Text('get all rows')),
-
-            ElevatedButton(onPressed:  buttonsEnabled? () async{
+            buttonsEnabled? ElevatedButton(onPressed:   () async{
               await importKpcData();
-                        }:null
-               , child: const Text('Import KPC CSV Data')),
+                        }
+               , child: const Text('Import KPC CSV Data')):Spacer(),
 
-            ElevatedButton(onPressed: buttonsEnabled? () async{
-              await emptyDatabase_method();}:null
-             , child: const Text('empty database')),
+            buttonsEnabled? ElevatedButton(onPressed:  () async{
+              await emptyDatabase_method();}
+             , child: const Text('empty database')):Spacer(),
 
-
-            ElevatedButton(onPressed: buttonsEnabled? () async{
+            buttonsEnabled? ElevatedButton(onPressed: () async{
              // await createTable_method();
-            }:null, child: const Text('clear all rows')),
+            }, child: const Text('clear all rows')):Spacer(),
           ],
         ),
       ),
     );
   }
 
-   Future<void> getItemData(String itemCode) async {
+   Future<void> getItemDataByMESC(String itemCode) async {
     final connection = await connectToDb();
     if (connection != null) {
       final results = await getRowByItem(connection, itemCode, tableName: 'kpc_data');
@@ -108,7 +133,38 @@ class _ScreenOneState extends State<ScreenOne> {
     }
   }
 
-   Future<void> getData() async {
+  Future<void> getItemDataByPartNumber(String partNumber) async {
+    final connection = await connectToDb();
+    if (connection != null) {
+      final results = await getRowByPartNumber(connection, partNumber, tableName: 'kpc_data');
+      await connection.close();
+      print('\nConnection closed.');
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Part Number: $partNumber'),
+            content: SingleChildScrollView(
+              child: Text(
+                results.isNotEmpty
+                    ? results.map((r) => r.entries.map((e) => '${e.key}: ${e.value}').join('\n')).join('\n-------------------\n')
+                    : 'No record found for Part Number "$partNumber"',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+   Future<void> getAllData() async {
     final connection = await connectToDb();
 
     if (connection != null) {

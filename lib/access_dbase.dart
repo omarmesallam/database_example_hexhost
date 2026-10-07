@@ -351,6 +351,40 @@ Future<List<Map<String, dynamic>>> getRowByItem(MySqlConnection connection, Stri
     return [];
   }
 }
+
+/// Fetches row data from a database table where Manufacturer, Long Desc, or other text columns contain [partNumber].
+Future<List<Map<String, dynamic>>> getRowByPartNumber(MySqlConnection connection, String partNumber, {String tableName = 'kpc_data'}) async {
+  try {
+    print('\nSearching for Part Number "$partNumber" in "$tableName"...');
+    final query = '%${partNumber.trim()}%';
+    final sql = 'SELECT * FROM `$tableName` WHERE `manufacturer` LIKE ? OR `long_desc` LIKE ? OR `ass_internal_info` LIKE ?';
+    final results = await connection.query(sql, [query, query, query]);
+
+    final rows = <Map<String, dynamic>>[];
+    if (results.isEmpty) {
+      print('No record found matching Part Number "$partNumber".');
+    } else {
+      print('Found ${results.length} matching record(s):');
+      final headers = results.fields.map((f) => f.name ?? '').toList();
+
+      for (var row in results) {
+        final rowMap = <String, dynamic>{};
+        for (var i = 0; i < headers.length; i++) {
+          final headerName = headers[i];
+          if (headerName.isNotEmpty) {
+            rowMap[headerName] = row[i];
+          }
+        }
+        rows.add(rowMap);
+        print(rowMap);
+      }
+    }
+    return rows;
+  } catch (e) {
+    print('Error searching for Part Number "$partNumber": $e');
+    return [];
+  }
+}
 //
 // void main() async {
 //   // 1. Connect
