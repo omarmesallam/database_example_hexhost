@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:mysql1/mysql1.dart';
 
 /// Establishes a connection to the MariaDB database.
@@ -31,12 +33,68 @@ Future<MySqlConnection?> connectToDb() async {
     return null;
   }
 }
+/// Sanitizes a raw CSV column name to be a valid SQL table field name.
+String sanitizeColumnName(String rawName) {
+  var name = rawName.trim().toLowerCase();
+  // Replace special characters, punctuation, and spaces with underscores
+  name = name.replaceAll(RegExp(r'[^a-z0-9_]'), '_');
+  // Collapse consecutive underscores into a single underscore
+  name = name.replaceAll(RegExp(r'_+'), '_');
+  // Remove leading and trailing underscores
+  name = name.replaceAll(RegExp(r'^_+|_+$'), '');
+  // Prefix with 'yr_' if the name starts with a digit (e.g. 1yr -> yr_1)
+  if (RegExp(r'^[0-9]').hasMatch(name)) {
+    name = 'yr_$name';
+  }
+  return name;
+}
 
-/// Creates a new table in the database.
-Future<void> createTable(MySqlConnection connection, String tableName, List<String> fields) async {
+/// Sanitized table column names suitable for database fields.
+final List<String> columnNames = [
+  'uom',
+  'sub_inv',
+  'org',
+  'item',
+  'long_desc',
+  'onhand',
+  'min_qty',
+  'max_qty',
+  'onorder',
+  'inprocess',
+  'last_yr',
+  'yr_1',
+  'relation_type',
+  'yr_2',
+  'yr_3',
+  'location',
+  'manufacturer',
+  'average_price_usd',
+  'status',
+  'serial_no',
+  'last_po_price',
+  'curr',
+  'creation_date',
+  'has_attch',
+  'category',
+  'asset_group',
+  'parts_for',
+  'ass_internal_info',
+  'item_type',
+  'relation_qty_remarks',
+  'hold',
+];
+
+
+/// Creates a new table in the database using the [columnNames] list.
+Future<void> createTable(MySqlConnection connection, String tableName, [List<String>? fields]) async {
   try {
-    final fieldsStr = fields.join(', ');
-    final sql = 'CREATE TABLE $tableName ($fieldsStr)';
+    // If fields are provided, use them; otherwise construct field definitions from columnNames with TEXT data type
+    final columnDefs = (fields != null && fields.isNotEmpty)
+        ? fields
+        : columnNames.map((col) => '`$col` TEXT').toList();
+
+    final fieldsStr = 'id INT AUTO_INCREMENT PRIMARY KEY, ${columnDefs.join(', ')}';
+    final sql = 'CREATE TABLE IF NOT EXISTS `$tableName` ($fieldsStr)';
 
     print('Creating table "$tableName"...');
     await connection.query(sql);
@@ -56,8 +114,8 @@ Future<void> readTableData(MySqlConnection connection, String tableName) async {
       print('The table "$tableName" is empty.');
     } else {
       // Print column names
-      final columnNames = results.fields.map((f) => f.name).toList();
-      print('Columns: $columnNames');
+      final headers = results.fields.map((f) => f.name ?? '').toList();
+      print('Columns: $headers');
       print('-' * 50);
 
       for (var row in results) {
@@ -81,8 +139,8 @@ Future<void> addDataToTable(MySqlConnection connection, String tableName, List<L
   }
 
   try {
-    // Get column names to build the query
-    final columnsResult = await connection.query('SHOW COLUMNS FROM $tableName');
+    // Get column names from the database table
+    final columnsResult = await connection.query('SHOW COLUMNS FROM `$tableName`');
 
     // Filter columns that are not AUTO_INCREMENT
     final targetColumns = <String>[];
@@ -90,30 +148,200 @@ Future<void> addDataToTable(MySqlConnection connection, String tableName, List<L
       // Row is list-like, col[0] is Field, col[5] is Extra
       final extra = row[5]?.toString().toLowerCase() ?? '';
       if (!extra.contains('auto_increment')) {
-        targetColumns.add(row[0].toString());
+        targetColumns.add('`${row[0]}`');
       }
     }
 
-    final numDataCols = dataRows[0].length;
-    final insertColumns = targetColumns.take(numDataCols).toList();
+    if (targetColumns.isEmpty) {
+      print('Error: No insertable columns found in table "$tableName".');
+      return;
+    }
 
-    final colNamesStr = insertColumns.join(', ');
+    final numDataCols = targetColumns.length;
+    final colNamesStr = targetColumns.join(', ');
     final placeholders = List.filled(numDataCols, '?').join(', ');
 
-    final sql = 'INSERT INTO $tableName ($colNamesStr) VALUES ($placeholders)';
+    final sql = 'INSERT INTO `$tableName` ($colNamesStr) VALUES ($placeholders)';
 
-    print('Inserting data into "$tableName"...');
+    print('Inserting ${dataRows.length} rows into "$tableName"...');
 
     // mysql1 handles transactions via .transaction()
     await connection.transaction((ctx) async {
       for (var row in dataRows) {
-        await ctx.query(sql, row);
+        // Guarantee parameter length matches the query parameter count exactly
+        final paddedRow = List<dynamic>.from(row);
+        while (paddedRow.length < numDataCols) {
+          paddedRow.add('');
+        }
+        if (paddedRow.length > numDataCols) {
+          paddedRow.removeRange(numDataCols, paddedRow.length);
+        }
+        await ctx.query(sql, paddedRow);
       }
     });
 
     print('Successfully inserted ${dataRows.length} rows.');
   } catch (e) {
     print('Error inserting data into "$tableName": $e');
+  }
+}
+
+/// Empties the database by dropping all tables and their contents.
+Future<void> emptyDatabase(MySqlConnection connection) async {
+  try {
+    print('\n[WARNING] Emptying database (dropping all tables)...');
+
+    // Disable foreign key checks to allow dropping tables with relationships
+    await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
+
+    // Get all table names in the database
+    final results = await connection.query('SHOW TABLES;');
+    final tables = <String>[];
+
+    for (var row in results) {
+      if (row[0] != null) {
+        tables.add(row[0].toString());
+      }
+    }
+
+    if (tables.isEmpty) {
+      print('Database is already empty (no tables found).');
+    } else {
+      print('Found ${tables.length} table(s) to drop: ${tables.join(', ')}');
+      for (var tableName in tables) {
+        print('Dropping table "$tableName"...');
+        await connection.query('DROP TABLE IF EXISTS `$tableName`;');
+      }
+      print('Database has been completely emptied of all tables and rows.');
+    }
+  } catch (e) {
+    print('Error emptying database: $e');
+  } finally {
+    try {
+      await connection.query('SET FOREIGN_KEY_CHECKS = 1;');
+    } catch (_) {}
+  }
+}
+
+/// Clears all rows from all tables in the database while keeping table schemas.
+Future<void> clearAllTableRows(MySqlConnection connection) async {
+  try {
+    print('\n[WARNING] Clearing all rows from all tables...');
+
+    await connection.query('SET FOREIGN_KEY_CHECKS = 0;');
+
+    final results = await connection.query('SHOW TABLES;');
+    final tables = <String>[];
+
+    for (var row in results) {
+      if (row[0] != null) {
+        tables.add(row[0].toString());
+      }
+    }
+
+    if (tables.isEmpty) {
+      print('No tables found in the database.');
+    } else {
+      for (var tableName in tables) {
+        print('Truncating table "$tableName"...');
+        await connection.query('TRUNCATE TABLE `$tableName`;');
+      }
+      print('All table rows cleared successfully.');
+    }
+  } catch (e) {
+    print('Error clearing table rows: $e');
+  } finally {
+    try {
+      await connection.query('SET FOREIGN_KEY_CHECKS = 1;');
+    } catch (_) {}
+  }
+}
+
+/// Reads assets/KPC_OIL_STOCK.csv and imports all data into the 'kpc_data' table.
+Future<void> importCsvToKpcData(MySqlConnection connection, {String tableName = 'kpc_data'}) async {
+  try {
+    print('Loading CSV asset...');
+    final csvString = await rootBundle.loadString('assets/KPC_OIL_STOCK.csv');
+
+    final lines = const LineSplitter().convert(csvString);
+    if (lines.isEmpty) {
+      print('CSV file is empty.');
+      return;
+    }
+
+    print('Total lines in CSV (including header): ${lines.length}');
+
+    final expectedCols = columnNames.length; // 31 columns
+
+    // Skip header line (index 0), parse data rows
+    final dataRows = <List<dynamic>>[];
+    for (var i = 1; i < lines.length; i++) {
+      final line = lines[i];
+      if (line.trim().isEmpty) continue;
+
+      // Tab-separated values
+      var fields = line.split('\t');
+
+      // Ensure every row has exact expected length matching columnNames
+      if (fields.length < expectedCols) {
+        fields = List<String>.from(fields)..addAll(List.filled(expectedCols - fields.length, ''));
+      } else if (fields.length > expectedCols) {
+        fields = fields.sublist(0, expectedCols);
+      }
+
+      dataRows.add(fields);
+    }
+
+    print('Parsed ${dataRows.length} data rows.');
+
+    // Ensure table exists
+    await createTable(connection, tableName);
+
+    // Insert data rows in batches of 200
+    const batchSize = 200;
+    for (var i = 0; i < dataRows.length; i += batchSize) {
+      final end = (i + batchSize < dataRows.length) ? i + batchSize : dataRows.length;
+      final batch = dataRows.sublist(i, end);
+      print('Inserting batch ${(i ~/ batchSize) + 1} (${batch.length} rows)...');
+      await addDataToTable(connection, tableName, batch);
+    }
+
+    print('Successfully imported all CSV data into "$tableName".');
+  } catch (e) {
+    print('Error importing CSV data: $e');
+  }
+}
+
+/// Fetches row data from a database table where the 'item' column matches [itemValue].
+Future<List<Map<String, dynamic>>> getRowByItem(MySqlConnection connection, String itemValue, {String tableName = 'kpc_data'}) async {
+  try {
+    print('\nFetching data for item "$itemValue" from "$tableName"...');
+    final sql = 'SELECT * FROM `$tableName` WHERE `item` = ?';
+    final results = await connection.query(sql, [itemValue.trim()]);
+
+    final rows = <Map<String, dynamic>>[];
+    if (results.isEmpty) {
+      print('No record found matching item "$itemValue".');
+    } else {
+      print('Found ${results.length} matching record(s):');
+      final headers = results.fields.map((f) => f.name ?? '').toList();
+
+      for (var row in results) {
+        final rowMap = <String, dynamic>{};
+        for (var i = 0; i < headers.length; i++) {
+          final headerName = headers[i];
+          if (headerName.isNotEmpty) {
+            rowMap[headerName] = row[i];
+          }
+        }
+        rows.add(rowMap);
+        print(rowMap);
+      }
+    }
+    return rows;
+  } catch (e) {
+    print('Error searching for item "$itemValue": $e');
+    return [];
   }
 }
 //
