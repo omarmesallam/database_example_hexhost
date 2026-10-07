@@ -14,7 +14,7 @@ class ScreenOne extends StatefulWidget {
 
 class _ScreenOneState extends State<ScreenOne> {
   final TextEditingController _itemController = TextEditingController(text: '20-70-01-127-A');
-
+  final buttonsEnabled=false;
   @override
   void dispose() {
     _itemController.dispose();
@@ -50,18 +50,27 @@ class _ScreenOneState extends State<ScreenOne> {
               },
               child: const Text('Get Row by Item'),
             ),
-            ElevatedButton(onPressed: () async{
+
+
+            ElevatedButton(onPressed:buttonsEnabled? () async{
                await getData();
-            }, child: const Text('Get saved data')),
-            ElevatedButton(onPressed: () async{
+            }:null
+
+            , child: const Text('get all rows')),
+
+            ElevatedButton(onPressed:  buttonsEnabled? () async{
               await importKpcData();
-            }, child: const Text('Import KPC CSV Data')),
-            ElevatedButton(onPressed: () async{
-              await emptyDatabase_method();
-            }, child: const Text('empty database')),
-            ElevatedButton(onPressed: () async{
+                        }:null
+               , child: const Text('Import KPC CSV Data')),
+
+            ElevatedButton(onPressed: buttonsEnabled? () async{
+              await emptyDatabase_method();}:null
+             , child: const Text('empty database')),
+
+
+            ElevatedButton(onPressed: buttonsEnabled? () async{
              // await createTable_method();
-            }, child: const Text('clear all rows')),
+            }:null, child: const Text('clear all rows')),
           ],
         ),
       ),

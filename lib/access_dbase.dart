@@ -10,7 +10,7 @@ Future<MySqlConnection?> connectToDb() async {
     user: 'mohamedm_mohamedelwan',
     password: '3030@Salma',
     db: 'mohamedm_nouralislam',
-    timeout: Duration(seconds: 10),
+    timeout: Duration(seconds: 60),
   );
 
   try {
@@ -104,11 +104,17 @@ Future<void> createTable(MySqlConnection connection, String tableName, [List<Str
   }
 }
 
-/// Reads and displays data from a specific table.
-Future<void> readTableData(MySqlConnection connection, String tableName) async {
+/// Reads and displays data from a specific table (limited to [limit] rows for optimal network performance).
+Future<void> readTableData(MySqlConnection connection, String tableName, {int limit = 50}) async {
   try {
     print('\nFetching data from "$tableName"...');
-    final results = await connection.query('SELECT * FROM $tableName');
+
+    // Get total row count first
+    final countResult = await connection.query('SELECT COUNT(*) FROM `$tableName`');
+    final totalRows = countResult.first[0] ?? 0;
+    print('Total rows in "$tableName": $totalRows');
+
+    final results = await connection.query('SELECT * FROM `$tableName` LIMIT $limit');
 
     if (results.isEmpty) {
       print('The table "$tableName" is empty.');
@@ -116,6 +122,7 @@ Future<void> readTableData(MySqlConnection connection, String tableName) async {
       // Print column names
       final headers = results.fields.map((f) => f.name ?? '').toList();
       print('Columns: $headers');
+      print('Displaying first ${results.length} row(s):');
       print('-' * 50);
 
       for (var row in results) {
