@@ -60,7 +60,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/KPC_OIL_STOCK.csv
+    #- assets/KPC_OIL_STOCK.csv
+    - assets/KPC_20.csv
 
   # To add assets to your application, add an assets section, like this:
 

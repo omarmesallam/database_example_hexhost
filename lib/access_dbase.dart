@@ -268,7 +268,7 @@ Future<void> clearAllTableRows(MySqlConnection connection) async {
 Future<void> importCsvToKpcData(MySqlConnection connection, {String tableName = 'kpc_data'}) async {
   try {
     print('Loading CSV asset...');
-    final csvString = await rootBundle.loadString('assets/KPC_OIL_STOCK.csv');
+    final csvString = await rootBundle.loadString('assets/KPC_20.csv');
 
     final lines = const LineSplitter().convert(csvString);
     if (lines.isEmpty) {

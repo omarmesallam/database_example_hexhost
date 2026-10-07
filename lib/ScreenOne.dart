@@ -14,7 +14,7 @@ class ScreenOne extends StatefulWidget {
 
 class _ScreenOneState extends State<ScreenOne> {
   final TextEditingController _itemController = TextEditingController(text: '20-70-01-127-A');
-  final buttonsEnabled=false;
+  final buttonsEnabled=true;
   @override
   void dispose() {
     _itemController.dispose();
