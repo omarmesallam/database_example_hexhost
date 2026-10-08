@@ -84,13 +84,22 @@ final List<String> columnNames = [
   'hold',
 ];
 final List<String> ProjectNum=[
-  '77111'	,'74681',	'3c703_3G682' ,'3A921',	'3E651'	,'3A111',	'53091',	'53092'	,'3A673',	'3C951',	'3C851',	'3C941'	,'3P991'	,'A4030',	'A4031',	'74121'
+  'KAHRAMAN-T60-PG-77111'	,'KHEPRI-C40-PG-74681',
+  'KALABSHA-T60-PG-3c703_3G682' ,'KALABSHA-T60-PG-3A921',
+  'KALABSHA-T60-PG-3E651'	,
+  'SG-MARS100-PG-3A111',	'SG-MARS100-PG-53091',
+  'TG-MARS100-PG-53092'
+  ,'NPCS-MARS100-CS-3A673',	'NPCS-T60-PG-3C951',
+  'QASR-T60-PG-3C851',
+  'QASR-T60-PG-3C941'	,'QSR-MARS100-CS-3P991'	,'SB-C40-PG-A4030',
+  'SB-C40-PG-A4031',	'SB-C40-PG-74121'
 ];
 
 
 
 /// Creates a new table in the database using the [columnNames] list.
-Future<void> createTable(MySqlConnection connection, String tableName, [List<String>? fields]) async {
+Future<void> createTable(MySqlConnection connection, String tableName,
+    [List<String>? fields]) async {
   try {
     // If fields are provided, use them; otherwise construct field definitions from columnNames with TEXT data type
     final columnDefs = (fields != null && fields.isNotEmpty)
@@ -108,8 +117,10 @@ Future<void> createTable(MySqlConnection connection, String tableName, [List<Str
   }
 }
 
-/// Reads and displays data from a specific table (limited to [limit] rows for optimal network performance).
-Future<void> readTableData(MySqlConnection connection, String tableName, {int limit = 50}) async {
+/// Reads and displays data from a specific table (limited to [limit] rows for
+/// optimal network performance).
+Future<void> readTableData(MySqlConnection connection, String tableName,
+    {int limit = 50}) async {
   try {
     print('\nFetching data from "$tableName"...');
 
@@ -143,7 +154,8 @@ Future<void> readTableData(MySqlConnection connection, String tableName, {int li
 }
 
 /// Adds data to a specific table.
-Future<void> addDataToTable(MySqlConnection connection, String tableName, List<List<dynamic>> dataRows) async {
+Future<void> addDataToTable(MySqlConnection connection, String tableName,
+    List<List<dynamic>> dataRows) async {
   if (dataRows.isEmpty) {
     print('No data to insert.');
     return;
@@ -269,7 +281,8 @@ Future<void> clearAllTableRows(MySqlConnection connection) async {
 }
 
 /// Reads assets/KPC_OIL_STOCK.csv and imports all data into the 'kpc_data' table.
-Future<void> importCsvToKpcData(MySqlConnection connection, {String tableName = 'kpc_data'}) async {
+Future<void> importCsvToKpcData(MySqlConnection connection,
+    {String tableName = 'kpc_data'}) async {
   try {
     print('Loading CSV asset...');
     final csvString = await rootBundle.loadString('assets/KPC_20.csv');
@@ -324,7 +337,8 @@ Future<void> importCsvToKpcData(MySqlConnection connection, {String tableName = 
 }
 
 /// Fetches row data from a database table where the 'item' column matches [itemValue].
-Future<List<Map<String, dynamic>>> getRowByItem(MySqlConnection connection, String itemValue, {String tableName = 'kpc_data'}) async {
+Future<List<Map<String, dynamic>>> getRowByItem(MySqlConnection connection,
+    String itemValue, {String tableName = 'kpc_data'}) async {
   try {
     print('\nFetching data for item "$itemValue" from "$tableName"...');
     final sql = 'SELECT * FROM `$tableName` WHERE `item` = ?';
@@ -356,8 +370,10 @@ Future<List<Map<String, dynamic>>> getRowByItem(MySqlConnection connection, Stri
   }
 }
 
-/// Fetches row data from a database table where Manufacturer, Long Desc, or other text columns contain [partNumber].
-Future<List<Map<String, dynamic>>> getRowByPartNumber(MySqlConnection connection, String partNumber, {String tableName = 'kpc_data'}) async {
+/// Fetches row data from a database table where Manufacturer, Long Desc,
+/// or other text columns contain [partNumber].
+Future<List<Map<String, dynamic>>> getRowByPartNumber(MySqlConnection connection,
+    String partNumber, {String tableName = 'kpc_data'}) async {
   try {
     print('\nSearching for Part Number "$partNumber" in "$tableName"...');
     final query = '%${partNumber.trim()}%';
