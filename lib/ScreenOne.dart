@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:word_generator/word_generator.dart';
 
 import 'access_dbase.dart';
@@ -33,7 +35,7 @@ class _ScreenOneState extends State<ScreenOne> {
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Padding(
@@ -65,12 +67,12 @@ class _ScreenOneState extends State<ScreenOne> {
                 ),
               ),
             ),
-            const Spacer(),
+            const SizedBox(height: 20,),
             ElevatedButton(
               onPressed: () async {
 
                 if (_itemMESCController.text.trim().isNotEmpty) {
-                  await getItemDataByMESC('${_itemMESCController.text.trim()}-A');
+                  await getItemDataByMESC_assets('${_itemMESCController.text.trim()}-A');
                 }
                 else if( _partNumberController.text.trim().isNotEmpty )  {
                   await getItemDataByPartNumber(_partNumberController.text.trim());
@@ -78,7 +80,21 @@ class _ScreenOneState extends State<ScreenOne> {
               },
               child: const Text('Get Item Information'),
             ),
-            const Spacer(),
+            const SizedBox(height: 8.0),
+            ElevatedButton(
+              onPressed: () async {
+                await searchPartNumInProjects();
+              },
+              child: const Text('Search Part Number in Projects'),
+            ),
+            const SizedBox(height: 8.0),
+            ElevatedButton(
+              onPressed: () async {
+                await getManufacturerFromMESC();
+              },
+              child: const Text('Get Manufacturer from MESC'),
+            ),
+            const SizedBox(height: 20,),
 
             buttonsEnabled? ElevatedButton(onPressed: () async{
                await getAllData(); },
@@ -133,7 +149,94 @@ class _ScreenOneState extends State<ScreenOne> {
     }
   }
 
+  Future<void> getItemDataByMESC_assets(String itemCode) async {
+    try {
+      final csvString = await rootBundle.loadString('assets/KPC_20.csv');
+      final lines = const LineSplitter().convert(csvString);
+
+      if (lines.isEmpty) {
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text('Item: $itemCode'),
+              content: const Text('Asset file KPC_20.csv is empty.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // Parse headers from first line
+      final headerFields = lines[0].split('\t').map((h) => sanitizeColumnName(h)).toList();
+
+      final results = <Map<String, dynamic>>[];
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i];
+        if (line.trim().isEmpty) continue;
+
+        final fields = line.split('\t');
+        if (fields.length > 3) {
+          final rowItem = fields[3].trim();
+          if (rowItem.toLowerCase() == itemCode.trim().toLowerCase()) {
+            final rowMap = <String, dynamic>{};
+            for (var j = 0; j < headerFields.length && j < fields.length; j++) {
+              rowMap[headerFields[j]] = fields[j];
+            }
+            results.add(rowMap);
+          }
+        }
+      }
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Item: $itemCode'),
+            content: SingleChildScrollView(
+              child: Text(
+                results.isNotEmpty
+                    ? results.map((r) => r.entries.map((e) => '${e.key}: ${e.value}').join('\n')).join('\n-------------------\n')
+                    : 'No record found for item "$itemCode" in KPC_20.csv',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error reading asset KPC_20.csv: $e');
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Error'),
+            content: Text('Failed to read asset: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> getItemDataByPartNumber(String partNumber) async {
+    final unitRow = await findPartNumInProjects(partNumber);
     final connection = await connectToDb();
     if (connection != null) {
       final results = await getRowByPartNumber(connection, partNumber, tableName: 'kpc_data');
@@ -147,9 +250,11 @@ class _ScreenOneState extends State<ScreenOne> {
             title: Text('Part Number: $partNumber'),
             content: SingleChildScrollView(
               child: Text(
-                results.isNotEmpty
+                'Unit Parts Row: ${unitRow != -1 ? "Row $unitRow" : "Not found in unit parts"}\n'
+                '-------------------\n' +
+                (results.isNotEmpty
                     ? results.map((r) => r.entries.map((e) => '${e.key}: ${e.value}').join('\n')).join('\n-------------------\n')
-                    : 'No record found for Part Number "$partNumber"',
+                    : 'No record found for Part Number "$partNumber"'),
               ),
             ),
             actions: [
@@ -161,6 +266,130 @@ class _ScreenOneState extends State<ScreenOne> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> getManufacturerFromMESC() async {
+    final rawMesc = _itemMESCController.text.trim();
+    if (rawMesc.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter an Item MESC first.')),
+        );
+      }
+      return;
+    }
+
+    final mescCode = rawMesc.endsWith('-A') ? rawMesc : '$rawMesc-A';
+
+    try {
+      final csvString = await rootBundle.loadString('assets/KPC_20.csv');
+      final lines = const LineSplitter().convert(csvString);
+
+      String? manufacturerInfo;
+      String? itemDesc;
+
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i];
+        if (line.trim().isEmpty) continue;
+
+        final fields = line.split('\t');
+        if (fields.length > 3) {
+          final rowItem = fields[3].trim();
+          if (rowItem.toLowerCase() == mescCode.toLowerCase()) {
+            if (fields.length > 16) {
+              manufacturerInfo = fields[16].trim();
+            }
+            if (fields.length > 4) {
+              itemDesc = fields[4].trim();
+            }
+            break;
+          }
+        }
+      }
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('Manufacturer for MESC: $mescCode'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (itemDesc != null && itemDesc.isNotEmpty) ...[
+                    Text('Description:\n$itemDesc', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
+                  ],
+                  Text(
+                    (manufacturerInfo != null && manufacturerInfo.isNotEmpty)
+                        ? 'Manufacturer:\n$manufacturerInfo'
+                        : 'No manufacturer details found for MESC "$mescCode" in KPC_20.csv.',
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error getting manufacturer from MESC: $e');
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Error'),
+            content: Text('Failed to read manufacturer data: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> searchPartNumInProjects() async {
+    final partNumber = _partNumberController.text.trim();
+    if (partNumber.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a Part Number first.')),
+        );
+      }
+      return;
+    }
+
+    final rowNumber = await findPartNumInProjects(partNumber);
+
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Part Number Search: $partNumber'),
+          content: Text(
+            rowNumber != -1
+                ? 'Part Number "$partNumber" was found in ${rowNumber.length} Projects \n $rowNumber'
+                : 'Part Number "$partNumber" was NOT found in each_unit_parts.csv',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
     }
   }
 

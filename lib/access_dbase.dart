@@ -83,6 +83,10 @@ final List<String> columnNames = [
   'relation_qty_remarks',
   'hold',
 ];
+final List<String> ProjectNum=[
+  '77111'	,'74681',	'3c703_3G682' ,'3A921',	'3E651'	,'3A111',	'53091',	'53092'	,'3A673',	'3C951',	'3C851',	'3C941'	,'3P991'	,'A4030',	'A4031',	'74121'
+];
+
 
 
 /// Creates a new table in the database using the [columnNames] list.
@@ -384,6 +388,40 @@ Future<List<Map<String, dynamic>>> getRowByPartNumber(MySqlConnection connection
     print('Error searching for Part Number "$partNumber": $e');
     return [];
   }
+}
+
+/// Searches for [partNumber] in assets/each_unit_parts.csv.
+/// Returns the 1-based matched row number (or -1 if not found).
+Future<List<String>> findPartNumInProjects(String partNumber) async {
+  List<String> found=[];
+  try {
+    final csvString = await rootBundle.loadString('assets/each_unit_parts.csv');
+    final lines = const LineSplitter().convert(csvString);
+
+    final target = partNumber.trim().toLowerCase();
+    if (target.isEmpty) return [];
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (line.trim().isEmpty) continue;
+
+      final items = line.split(',');
+      for (var item in items) {
+        final cleanItem = item.trim().toLowerCase();
+        //cleanItem.contains(target)
+        if (cleanItem == target ) {
+          print('Found Part Number "$partNumber" at row ${i} in each_unit_parts.csv');
+          found.add( ProjectNum[ i]);
+          break;// 1-based row number
+        }
+      }
+    }
+    print(found);
+    return found;
+  } catch (e) {
+    print('Error searching in assets/each_unit_parts.csv: $e');
+  }
+  return [];
 }
 //
 // void main() async {
