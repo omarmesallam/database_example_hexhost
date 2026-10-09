@@ -51,7 +51,7 @@ class _ScreenOneState extends State<ScreenOne> {
                 ),
               ),
             ),
-            const SizedBox(height: 12.0),
+            const SizedBox(height: 30.0, child: Text('OR')),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: TextField(
@@ -93,6 +93,13 @@ class _ScreenOneState extends State<ScreenOne> {
                 await getManufacturerFromMESC();
               },
               child: const Text('Get Manufacturer from MESC'),
+            ),
+            const SizedBox(height: 8.0),
+            ElevatedButton(
+              onPressed: () async {
+                await getMESCByPartNumber();
+              },
+              child: const Text('Get MESC by Part Number'),
             ),
             const SizedBox(height: 20,),
 
@@ -236,7 +243,7 @@ class _ScreenOneState extends State<ScreenOne> {
   }
 
   Future<void> getItemDataByPartNumber(String partNumber) async {
-    final unitRow = await findPartNumInProjects(partNumber);
+    final unitProjects = await findPartNumInProjects(partNumber);
     final connection = await connectToDb();
     if (connection != null) {
       final results = await getRowByPartNumber(connection, partNumber, tableName: 'kpc_data');
@@ -250,11 +257,9 @@ class _ScreenOneState extends State<ScreenOne> {
             title: Text('Part Number: $partNumber'),
             content: SingleChildScrollView(
               child: Text(
-                'Unit Parts Row: ${unitRow != -1 ? "Row $unitRow" : "Not found in unit parts"}\n'
-                '-------------------\n' +
-                (results.isNotEmpty
-                    ? results.map((r) => r.entries.map((e) => '${e.key}: ${e.value}').join('\n')).join('\n-------------------\n')
-                    : 'No record found for Part Number "$partNumber"'),
+                'Unit Projects: ${unitProjects.isNotEmpty ? unitProjects.join(", ") : "Not found in unit parts"}\n'
+                '-------------------\n'
+                '${results.isNotEmpty ? results.map((r) => r.entries.map((e) => '${e.key}: ${e.value}').join('\n')).join('\n-------------------\n') : 'No record found for Part Number "$partNumber"'}',
               ),
             ),
             actions: [
@@ -359,6 +364,100 @@ class _ScreenOneState extends State<ScreenOne> {
     }
   }
 
+  Future<void> getMESCByPartNumber() async {
+    final partNumber = _partNumberController.text.trim();
+    if (partNumber.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a Part Number first.')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final csvString = await rootBundle.loadString('assets/KPC_20.csv');
+      final lines = const LineSplitter().convert(csvString);
+
+      final matches = <Map<String, String>>[];
+
+      for (var i = 1; i < lines.length; i++) {
+        final line = lines[i];
+        if (line.trim().isEmpty) continue;
+
+        if (line.toLowerCase().contains(partNumber.toLowerCase())) {
+          final fields = line.split('\t');
+          final org = (fields.length > 2) ? fields[2].trim() : '';
+          final mescCode = (fields.length > 3) ? fields[3].trim() : 'Unknown';
+          final desc = (fields.length > 4) ? fields[4].trim() : '';
+          final manufacturer = (fields.length > 16) ? fields[16].trim() : '';
+
+          matches.add({
+            'org': org,
+            'mesc': mescCode,
+            'desc': desc,
+            'manufacturer': manufacturer,
+          });
+        }
+      }
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text('MESC for Part Number: $partNumber'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: matches.isNotEmpty
+                    ? matches.map((m) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'MESC: ${m['mesc']}${m['org']!.isNotEmpty ? "   (Org: ${m['org']})" : ""}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            if (m['desc']!.isNotEmpty) Text('Description: ${m['desc']}'),
+                            if (m['manufacturer']!.isNotEmpty) Text('Manufacturer: ${m['manufacturer']}'),
+                            const Divider(),
+                          ],
+                        ),
+                      )).toList()
+                    : [Text('No MESC code found matching Part Number "$partNumber" in KPC_20.csv.')],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error finding MESC by part number: $e');
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Error'),
+            content: Text('Failed to search MESC by Part Number: $e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> searchPartNumInProjects() async {
     final partNumber = _partNumberController.text.trim();
     if (partNumber.isEmpty) {
@@ -370,7 +469,7 @@ class _ScreenOneState extends State<ScreenOne> {
       return;
     }
 
-    final rowNumber = await findPartNumInProjects(partNumber);
+    final projects = await findPartNumInProjects(partNumber);
 
     if (mounted) {
       showDialog(
@@ -378,9 +477,9 @@ class _ScreenOneState extends State<ScreenOne> {
         builder: (context) => AlertDialog(
           title: Text('Part Number Search: $partNumber'),
           content: Text(
-            rowNumber != -1
-                ? 'Part Number "$partNumber" was found in ${rowNumber.length} Projects \n $rowNumber'
-                : 'Part Number "$partNumber" was NOT found in each_unit_parts.csv',
+            projects.isNotEmpty
+                ? 'Part Number "$partNumber" was found in ${projects.length} Projects:\n${projects.join(", ")}'
+                : 'Part Number "$partNumber" was NOT found in any project in each_unit_parts.csv',
           ),
           actions: [
             TextButton(
